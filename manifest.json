@@ -3,14 +3,25 @@
   "name": "AgentBridge",
   "version": "1.0.0",
   "description": "Minimal AgentBridge Chrome extension.",
-  "permissions": ["activeTab", "scripting", "storage", "tabs", "sidePanel"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs",
+    "sidePanel",
+    "nativeMessaging"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["contentScript.js"]
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "contentScript.js"
+      ]
     }
   ],
   "side_panel": {

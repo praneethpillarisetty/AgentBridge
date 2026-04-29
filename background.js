@@ -83,6 +83,29 @@ async function requestApproval(toolRequest) {
   return response;
 }
 
+
+function sendToNativeHost(payload) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendNativeMessage('com.agentbridge.host', payload, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      resolve(response || null);
+    });
+  });
+}
+
+async function handleNativeHostPing(payload, sendResponse) {
+  try {
+    const response = await sendToNativeHost(payload || { type: 'ping' });
+    sendResponse({ data: response });
+  } catch (error) {
+    sendResponse({ error: error.message });
+  }
+}
+
 async function handleGetCurrentPage(sendResponse) {
   try {
     const response = await sendToActiveTab({ type: "get_current_page" });
@@ -128,6 +151,11 @@ async function handleFillField(selector, value, sendResponse) {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message?.type) return;
+
+  if (message.type === "verify_native_host") {
+    handleNativeHostPing(message.payload, sendResponse);
+    return true;
+  }
 
   if (message.type === "get_current_page") {
     handleGetCurrentPage(sendResponse);
