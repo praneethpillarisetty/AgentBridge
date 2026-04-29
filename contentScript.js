@@ -1,99 +1,68 @@
-console.log("AgentBridge loaded");
+const MAX_TEXT = 6000;
+const SENSITIVE_RE = /(pass(word)?|otp|one\s*time|credit|card|cvv|cvc|ssn|social\s*security|iban|routing|bank|payment|upi|pin)/i;
 
-const BLOCKED_FILL_KEYWORDS = ["card", "cvv", "otp", "ssn"];
-
-function extractLabel(field) {
-  const ariaLabel = field.getAttribute("aria-label");
-  if (ariaLabel) return ariaLabel;
-
-  if (field.id) {
-    const labelNode = document.querySelector(`label[for="${CSS.escape(field.id)}"]`);
-    if (labelNode?.innerText) return labelNode.innerText.trim();
+function getVisibleText() {
+  const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+  let out = "";
+  let node;
+  while ((node = walker.nextNode())) {
+    const txt = node.nodeValue?.trim();
+    if (!txt) continue;
+    const el = node.parentElement;
+    if (!el) continue;
+    const style = getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") continue;
+    out += txt + " ";
+    if (out.length >= MAX_TEXT) break;
   }
-
-  const wrappedLabel = field.closest("label");
-  if (wrappedLabel?.innerText) return wrappedLabel.innerText.trim();
-
-  return "";
+  return out.slice(0, MAX_TEXT);
 }
 
-function serializeField(field) {
-  const tag = field.tagName.toLowerCase();
-  const inputType = (field.getAttribute("type") || "text").toLowerCase();
-  return {
-    label: extractLabel(field),
-    type: tag === "input" ? inputType : tag,
-    id: field.id || "",
-    name: field.getAttribute("name") || "",
-    placeholder: field.getAttribute("placeholder") || "",
-  };
-}
-
-function getForms() {
-  const fields = Array.from(document.querySelectorAll("input, textarea, select"));
-  return fields.map(serializeField);
-}
-
-function isBlockedField(element) {
-  const type = (element.getAttribute("type") || "").toLowerCase();
-  const id = (element.id || "").toLowerCase();
-  const name = (element.getAttribute("name") || "").toLowerCase();
-  const placeholder = (element.getAttribute("placeholder") || "").toLowerCase();
-
-  if (type === "password") return true;
-
-  return BLOCKED_FILL_KEYWORDS.some((keyword) =>
-    [type, id, name, placeholder].some((source) => source.includes(keyword)),
-  );
-}
-
-function fillField(selector, value) {
-  if (!selector) {
-    return { ok: false, error: "Missing selector." };
-  }
-
-  const element = document.querySelector(selector);
-  if (!element) {
-    return { ok: false, error: "Element not found." };
-  }
-
-  const tag = element.tagName.toLowerCase();
-  if (!["input", "textarea", "select"].includes(tag)) {
-    return { ok: false, error: "Target is not a fillable form field." };
-  }
-
-  if (isBlockedField(element)) {
-    return { ok: false, error: "Blocked sensitive field." };
-  }
-
-  element.focus();
-  element.value = value;
-  element.dispatchEvent(new Event("input", { bubbles: true }));
-  element.dispatchEvent(new Event("change", { bubbles: true }));
-
-  return { ok: true, selector };
-}
-
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "get_current_page") {
-    const selection = window.getSelection ? window.getSelection().toString() : "";
-    const bodyText = (document.body?.innerText || "").slice(0, 10000);
-
-    sendResponse({
-      title: document.title || "",
-      url: window.location.href || "",
-      selectedText: selection,
-      bodyText,
+function detectForms() {
+  return [...document.forms].map((form, i) => {
+    const fields = [...form.querySelectorAll("input, textarea, select")].map((el, j) => {
+      const key = [el.name, el.id, el.getAttribute("aria-label"), el.type].filter(Boolean).join(" ");
+      return {
+        key: key || `field_${i}_${j}`,
+        tag: el.tagName.toLowerCase(),
+        type: (el.type || "").toLowerCase(),
+        blocked: SENSITIVE_RE.test(key)
+      };
     });
-    return;
+    return { index: i, fields };
+  });
+}
+
+function findFillTarget(fieldKey) {
+  const all = [...document.querySelectorAll("input, textarea, select")];
+  return all.find((el) => {
+    const key = [el.name, el.id, el.getAttribute("aria-label"), el.type].filter(Boolean).join(" ");
+    return key === fieldKey;
+  });
+}
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === "COLLECT_PAGE_DATA") {
+    sendResponse({
+      title: document.title,
+      url: location.href,
+      selectedText: (window.getSelection()?.toString() || "").trim().slice(0, 2000),
+      visibleText: getVisibleText(),
+      forms: detectForms()
+    });
   }
 
-  if (message?.type === "get_forms") {
-    sendResponse(getForms());
-    return;
-  }
+  if (msg?.type === "FILL_FIELD") {
+    const { field, value } = msg;
+    if (SENSITIVE_RE.test(field)) return sendResponse({ ok: false, error: "Blocked sensitive field." });
 
-  if (message?.type === "fill_field") {
-    sendResponse(fillField(message.selector, message.value || ""));
+    const target = findFillTarget(field);
+    if (!target) return sendResponse({ ok: false, error: "Field not found." });
+
+    target.focus();
+    target.value = value ?? "";
+    target.dispatchEvent(new Event("input", { bubbles: true }));
+    target.dispatchEvent(new Event("change", { bubbles: true }));
+    sendResponse({ ok: true });
   }
 });

@@ -1,0 +1,8 @@
+body { font-family: Arial, sans-serif; margin: 10px; }
+h1 { margin: 0 0 10px; font-size: 18px; }
+h2 { margin: 10px 0 6px; font-size: 14px; }
+button { margin-right: 6px; margin-bottom: 6px; }
+input, textarea { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+textarea { min-height: 120px; }
+pre { white-space: pre-wrap; background: #f6f8fa; padding: 8px; border-radius: 6px; max-height: 220px; overflow: auto; }
+.row { display: flex; gap: 6px; }
